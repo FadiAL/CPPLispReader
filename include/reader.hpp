@@ -32,6 +32,10 @@ namespace lisp_reader {
     Tokenizer(std::istream &is)
       : _is(is) {}
 
+    // Cannot copy/assign
+    Tokenizer(const Tokenizer &rhs) = delete;
+    Tokenizer &operator=(const Tokenizer &rhs) = delete;
+
     // Check if we can (or have) any more tokens to read
     bool canRead() {return _is.good();}
 
