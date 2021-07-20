@@ -11,9 +11,35 @@ namespace lisp_reader {
   // Represent different types of tokens
   // Although both numeric and string are literals (also atoms) we split them here to distinguish them better
   // Every TokenType after COMMENT (INT-STRING) is a literal
-  enum class TokenType { OPEN_PARENTHESIS, CLOSE_PARENTHESIS, SYMBOL, COMMENT, INT, DOUBLE, FLOAT, STRING };
+  enum class TokenType { OPEN_PARENTHESIS, CLOSE_PARENTHESIS, SYMBOL, COMMENT, INT, DOUBLE, FLOAT, STRING, END };
+  // Labels for each of the above Token Types
+  const std::array<std::string, static_cast<int>(TokenType::END)> tokenTypeLabels{
+    "OPEN_PARENTHESIS", "CLOSE_PARENTHESIS", "SYMBOL", "COMMENT", "INT", "DOUBLE", "FLOAT", "STRING"
+      };
+
+  // Function that returns the label for a given TokenType, used to contain the static_cast's
+  std::string_view getLabel(TokenType tt) {
+    return tokenTypeLabels[static_cast<int>(tt)];
+  }
+
   // The value of a token, can be any one of these
-  typedef TokenValue std::variant<std::string, int, float, double>;
+  typedef std::variant<std::string, int, float, double> TokenValue;
+  // Use a bit of type traits to define what each TokenType maps to in the variant
+  // By default it contains a string
+  template <TokenType T>
+  struct TokenTypeValue { typedef std::string ValType; };
+  template <>
+  struct TokenTypeValue<TokenType::INT> { typedef int ValType; };
+  template <>
+  struct TokenTypeValue<TokenType::DOUBLE> { typedef double ValType; };
+  template <>
+  struct TokenTypeValue<TokenType::FLOAT> { typedef double ValType; };
+
+  // Helper method that accesses the value of a token with a given TokenType using the type traits define above
+  template <TokenType T>
+  inline typename TokenTypeValue<T>::ValType getTokenVal(const TokenValue &t) {
+    return std::get<TokenTypeValue<T>::ValType>(t);
+  }
 
   // The list of symbols we are looking for when parsing, they have the same name as the TokenType above
   namespace token_chars {
