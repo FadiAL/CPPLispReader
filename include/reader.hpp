@@ -52,18 +52,43 @@ namespace lisp_reader {
   // Represent both a type and whatever value it may contain, some tokens may not have any value
   typedef std::pair<TokenType, std::optional<TokenValue> > Token;
 
+  // Helper function for printing a type-value token pair
+  inline std::ostream &operator<<(std::ostream &os, const Token &t) {
+    // If it's a literal type add this for extra information
+    if(t.first >= TokenType::INT)
+      os << "Literal ";
+
+    // Print out the label of this token type using static_cast
+    os << getLabel(t.first) << ": ";
+
+    // Get the type of this token and print that out, we use the previously defined type traits here
+    switch(t.first) {
+    case TokenType::OPEN_PARENTHESIS:
+      os << '(';
+      break;
+    case TokenType::CLOSE_PARENTHESIS:
+      os << ')';
+      break;
+    default:			// For all other cases we just do a visit and print the second element
+      std::visit([&os](auto &val) {os << val;}, *t.second);
+      break;
+    }
+    return os;
+  }
+
   // Takes in a stream and produces tokens for consumption
   class Tokenizer {
   public:
     Tokenizer(std::istream &is)
-      : _is(is) {}
+      : _is(is) {
+      // Disable whitespace-skipping
+      _is >> std::noskipws;
+    }
 
-    // Cannot copy/assign
-    Tokenizer(const Tokenizer &rhs) = delete;
-    Tokenizer &operator=(const Tokenizer &rhs) = delete;
+    // Cannot copy/assign/move (&_is deletes those methods anyway, no need to explicitly delete here)
 
-    // Check if we can (or have) any more tokens to read
-    bool canRead() {return _is.good();}
+    // Check if we can (or have) any more tokens to read by peeking a single character ahead and checking stream state
+    bool canRead() const {_is.peek(); return _is.good();}
 
     // Reads a token from the input stream
     // NOTE: Undefined behavior if read without checking canRead() first
@@ -87,7 +112,7 @@ namespace lisp_reader {
       case token_chars::STRING:
 	ret.first = TokenType::STRING;
 	// Put back the double-quotes we found
-	is.putback(token_chars::STRING);
+	_is.putback(token_chars::STRING);
 	// Read a string into ret
 	ret.second = _readStr();
 	break;
@@ -96,38 +121,37 @@ namespace lisp_reader {
       // Return the token here
       return ret;
     }
-  }
-    Token peek();
-private:
-  std::istream &_is;
+    Token peek() const;
+  private:
+    std::istream &_is;
 
-  // A list of private helper methods
-  std::string _readStr() {
-    char c;
-    _is >> c;
-    if(c != token_chars::STRING)
-      throw "Missing double-quotes at start of string literal";
-
-    // Consume characters until we hit a "
-    // We don't really know how large the string will be, so we can't reliably reserve size
-    std::string ret;
-    _is >> c;
-    while(c != token_chars::STRING && !_is.eof()) {
-      ret.push_back(c);
+    // A list of private helper methods
+    std::string _readStr() {
+      char c;
       _is >> c;
-    }
-    if(c != token_chars::STRING)
-      throw "Missing closing double-quotes for string literal";
+      if(c != token_chars::STRING)
+	throw "Missing double-quotes at start of string literal";
 
-    // If we got here we got the full string
-    return ret;
-  }
-  std::string _readCmt();
-  std::string _readSym();
-  int         _readInt();
-  double      _readDbl();
-  float       _readFlt();
-};
+      // Consume characters until we hit a "
+      // We don't really know how large the string will be, so we can't reliably reserve size
+      std::string ret;
+      _is >> c;
+      while(c != token_chars::STRING && !_is.eof()) {
+	ret.push_back(c);
+	_is >> c;
+      }
+      if(c != token_chars::STRING)
+	throw "Missing closing double-quotes for string literal";
+
+      // If we got here we got the full string
+      return ret;
+    }
+    std::string _readCmt();
+    std::string _readSym();
+    int         _readInt();
+    double      _readDbl();
+    float       _readFlt();
+  };
 };				// lisp_reader
 
 #endif // CPPLISPREADER_READER_HPP
