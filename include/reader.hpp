@@ -11,10 +11,10 @@ namespace lisp_reader {
   // Represent different types of tokens
   // Although both numeric and string are literals (also atoms) we split them here to distinguish them better
   // Every TokenType after COMMENT (INT-STRING) is a literal
-  enum class TokenType { OPEN_PARENTHESIS, CLOSE_PARENTHESIS, SYMBOL, COMMENT, INT, DOUBLE, FLOAT, STRING, END };
+  enum class TokenType { OPEN_PARENTHESIS, CLOSE_PARENTHESIS, SYMBOL, COMMENT, INT, DOUBLE, FLOAT, FRACTION, STRING, END };
   // Labels for each of the above Token Types
   const std::array<std::string, static_cast<int>(TokenType::END)> tokenTypeLabels{
-    "OPEN_PARENTHESIS", "CLOSE_PARENTHESIS", "SYMBOL", "COMMENT", "INT", "DOUBLE", "FLOAT", "STRING"
+    "OPEN_PARENTHESIS", "CLOSE_PARENTHESIS", "SYMBOL", "COMMENT", "INT", "DOUBLE", "FLOAT", "FRACTION", "STRING"
       };
 
   // Function that returns the label for a given TokenType, used to contain the static_cast's
@@ -22,8 +22,57 @@ namespace lisp_reader {
     return tokenTypeLabels[static_cast<int>(tt)];
   }
 
+  // FRACTION Tokens are represented by a tuple (num, den)
+  // This class allows printing, and keeps fraction simplified
+  class Fraction {
+  public:
+    Fraction(int num, int den)
+      : _num(num), _den(den) {
+      _simplify();
+    }
+
+    // Returns whether the fraction can be represented by an integer (denominator = 1)
+    bool isInt() const {return _den == 1;}
+
+    int getNum() const {return _num;}
+    int getDen() const {return _den;}
+
+    void setNum(int num) {_num = num; _simplify();}
+    void setDen(int den) {_den = den; _simplify();}
+
+    // Need to overload this for the std::visit function
+    bool operator==(const Fraction &rhs) const {
+      return _num == rhs._num && _den == rhs._den;
+    }
+  private:
+    int _num;
+    int _den;
+
+    // Helper function, mainly used by _simplify
+    int _gcd(int a, int b) {
+      while(b != 0) {
+	int t = b;
+	b = a % b;
+	a = t;
+      }
+
+      return a;
+    }
+
+    void _simplify() {
+      int gcd = _gcd(_num, _den);
+
+      _num /= gcd;
+      _den /= gcd;
+    }
+  };
+
+  std::ostream &operator<<(std::ostream &os, const Fraction &frac) {
+    os << frac.getNum() << '/' << frac.getDen();
+  }
+
   // The value of a token, can be any one of these
-  typedef std::variant<std::string, int, float, double> TokenValue;
+  typedef std::variant<std::string, int, float, double, Fraction> TokenValue;
   // Use a bit of type traits to define what each TokenType maps to in the variant
   // By default it contains a string
   template <TokenType T>
@@ -34,6 +83,8 @@ namespace lisp_reader {
   struct TokenTypeValue<TokenType::DOUBLE> { typedef double ValType; };
   template <>
   struct TokenTypeValue<TokenType::FLOAT> { typedef double ValType; };
+  template <>
+  struct TokenTypeValue<TokenType::FRACTION> { typedef Fraction ValType; };
 
   // Helper method that accesses the value of a token with a given TokenType using the type traits define above
   template <TokenType T>
