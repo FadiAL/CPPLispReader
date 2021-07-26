@@ -197,11 +197,81 @@ namespace lisp_reader {
       // If we got here we got the full string
       return ret;
     }
-    std::string _readCmt();
-    std::string _readSym();
-    int         _readInt();
-    double      _readDbl();
-    float       _readFlt();
+    std::string _readCmt() {
+      // Read until we stop finding ';'
+      char c;
+      _is >> c;
+
+      // If the first character is not a comment character, throw an error
+      if(c != token_chars::COMMENT)
+	throw "Missing semicolon at start of comment";
+
+      // Keep reading characters until we hit a non-COMMENT one
+      while(c == token_chars::COMMENT & !_is.eof())
+	_is >> c;
+      // Put back the first non-COMMENT character we found
+      _is.putback(c);
+
+      // Start reading the actual comment, can be done quickly with getline
+      std::string ret;
+      std::getline(_is, ret);
+
+      // Left-Trim to remove spaces after the double-semicolons
+      ret.erase(ret.begin(), std::find_if_not(ret.begin(), ret.end(), [](unsigned char c) {
+									return std::isspace(c);
+								      }));
+
+      return ret;
+    }
+    std::string _readSym() {
+      // Some rules:
+      //  1. No spaces (unless escaped)
+      //  2. Not purely numeric
+      //  3. .'s allowed, but not completely made of .'s
+      //  4. None of the RESERVED_SYM_CHARS, unless surrounded by | or escaped with a backslash
+      std::string ret;
+      char c;
+      _is >> c;
+      // How many dots found so far
+      int dotCnt = 0;
+      while(_is.good() && c != ' ') {
+	switch(c) {
+	case '.':
+	  ++dotCnt;
+	  ret.push_back(c);
+	  break;
+	case '\\':		// Read the next character literally
+	  _is >> c;
+	  if(!_is.good())
+	    throw "Cannot have unescaped backslash (\\) in a symbol name";
+	  ret.push_back(c);
+	  break;
+	case '|':			// Read the next 'n' characters literally, until we hit a second |
+	  _is >> c;
+	  while(c != '|') {
+	    if(!_is.good())
+	      throw "Did not find matching vertical bar (|) in symbol name";
+	    ret.push_back(c);
+	    _is >> c;
+	  }
+	  break;
+	default:			// Read the next char normally according to the above rules
+	  if(std::find(RESERVED_SYM_CHARS.begin(), RESERVED_SYM_CHARS.end(), c) != RESERVED_SYM_CHARS.end())
+	    throw "Unescaped illegal character in symbol";
+
+	  // Character is legal, add it
+	  ret.push_back(c);
+	  break;
+	}
+	_is >> c;
+      }
+
+      // If the dotCnt is the same length as the whole symbol, throw an error
+      if(dotCnt > 0 && dotCnt == ret.size())
+	throw "Too many dots in symbol";
+
+      return ret;
+    }
   };
 };				// lisp_reader
 
