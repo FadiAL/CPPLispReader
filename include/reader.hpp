@@ -2,6 +2,7 @@
 #define CPPLISPREADER_READER_HPP
 
 #include <iostream>
+#include <algorithm>
 #include <string>
 #include <optional>
 #include <variant>
@@ -103,6 +104,9 @@ namespace lisp_reader {
   // Represent both a type and whatever value it may contain, some tokens may not have any value
   typedef std::pair<TokenType, std::optional<TokenValue> > Token;
 
+  // For symbol tokens, these characters MUST be escaped
+  const std::array<char, 10> RESERVED_SYM_CHARS{ '(', ')', '"', '\'', '`', ',', ':', ';', '\\', '|' };
+
   // Helper function for printing a type-value token pair
   inline std::ostream &operator<<(std::ostream &os, const Token &t) {
     // If it's a literal type add this for extra information
@@ -152,23 +156,44 @@ namespace lisp_reader {
       _is >> c;
       // Based on the first character we find, the rest of the characters must be parsed accordingly
       switch(c) {
-      case token_chars::OPEN_PARENTHESIS:
+      case token_chars::OPEN_PARENTHESIS: // Parse Open Parenthesis
 	ret.first = TokenType::OPEN_PARENTHESIS;
 	// Keep TokenValue None
 	break;
-      case token_chars::CLOSE_PARENTHESIS:
+      case token_chars::CLOSE_PARENTHESIS: // Parse Close Parenthesis
 	ret.first = TokenType::CLOSE_PARENTHESIS;
 	// Keep TokenValue None
 	break;
-      case token_chars::STRING:
+      case token_chars::STRING:	// Parse String
 	ret.first = TokenType::STRING;
 	// Put back the double-quotes we found
 	_is.putback(token_chars::STRING);
 	// Read a string into ret
 	ret.second = _readStr();
 	break;
+      case token_chars::COMMENT: // Parse Comment
+	ret.first = TokenType::COMMENT;
+	// Put back the semicolon we found
+	_is.putback(token_chars::COMMENT);
+	// Read a comment into ret
+	ret.second = _readCmt();
+	break;
+      default:			// Can be any of the remaining types here
+	_is.putback(c);
+	// If this character is not a number or a (+/-), it is definitely a symbol
+	if(!_isDigit(c) && c != '+' && c != '-') {
+	  ret.first = TokenType::SYMBOL;
+	  ret.second = _readSym();
+	}
+	else {
+	  // Try to read it as a number, if it fails, its a symbol
+	  ret = _readNum();
+	  // If the type is symbol, the read failed, try to read it as a symbol
+	  if(ret.first == TokenType::SYMBOL)
+	    ret.second = _readSym();
+	}
+	break;
       }
-
       // Return the token here
       return ret;
     }
@@ -271,6 +296,136 @@ namespace lisp_reader {
 	throw "Too many dots in symbol";
 
       return ret;
+    }
+    Token _readNum() {
+      // The first charcter MUST be a digit or a minus (-) or a plus (+) symbol
+      char c;
+      _is >> c;
+      if(!_is.good() || (!_isDigit(c) && c != '-' && c != '+'))
+	throw "Numeric type must start with a digit";
+
+      Token ret;
+      ret.first = TokenType::INT; // We begin by assuming it is an int
+      // Collect the data in here, starting with the first char
+      std::string data = std::string(1, c);
+
+      // State machine
+      // If we hit a space at any moment, or the cannotParse flag is true, quit
+      bool cannotParse = false;
+      _is >> c;
+      while(_is.good()) {
+	data.push_back(c);
+	if(c == ' ')		// Stop here
+	  break;
+	if(cannotParse) {	// What we got was a symbol all along (cannot be read as a number)
+	  // Put back all the string chars in reverse order
+	  for(auto it = data.rbegin(); it != data.rend(); ++it)
+	    _is.putback(*it);
+	  ret.first = TokenType::SYMBOL;
+
+	  return ret;
+	}
+	// Main state-specific actions
+	switch(ret.first) {
+	case TokenType::INT:	// For INT's, we expect to find only numbers
+	  if(!_isDigit(c)) {	// If it is not a digit, switch to another type based on the character
+	    switch(c) {
+	    case '/':
+	      ret.first = TokenType::FRACTION;
+	      break;
+	    case 'e':
+	    case '.':
+	      ret.first = TokenType::FLOAT;
+	      break;
+	    case 'd':
+	      ret.first = TokenType::DOUBLE;
+	      break;
+	    default:		// None of these characters work, it's a symbol
+	      cannotParse = true;
+	      break;
+	    }
+	  }
+	  // It is a digit, we are still an INT
+	  break;
+	case TokenType::FRACTION:
+	  if(!_isDigit(c))	// A fraction should not have any further non-digit characters
+	    cannotParse = true;
+	  break;
+	case TokenType::FLOAT:
+	  if(!_isDigit(c)) {
+	    // We already have an e, we only allow numeric stuff afterwards, so stop here
+	    if(std::find(data.begin(), data.end(), 'e') != data.end())
+	      cannotParse = true;
+	    else if(c == 'd')	// We have a double
+	      ret.first = TokenType::DOUBLE;
+	    // If it is not an 'e', this is not legal, so stop again
+	    else if(c != 'e')
+	      cannotParse = true;
+	  }
+	  break;
+	case TokenType::DOUBLE:
+	  if(!_isDigit(c)) {
+	    // We already have a d, we only allow numeric stuff afterwards, so stop here
+	    if(std::find(data.begin(), data.end(), 'd') != data.end())
+	      cannotParse = true;
+	    // If it is not a 'd', this is not legal, so stop again
+	    else if(c != 'd')
+	      cannotParse = true;
+	  }
+	}
+	_is >> c;
+      }
+
+      // At this point, we parsed all we can, so lets convert the data type appropriately
+      // First, if the only character is a + or a -, its a symbol
+      if(data == "+" || data == "-") {
+	ret.first = TokenType::SYMBOL;
+	_is.clear();
+	_is.putback(data[0]);
+	return ret;
+      }
+
+      // Otherwise, parse and return
+      switch(ret.first) {
+      case TokenType::INT:
+	ret.second = std::stoi(data);
+	break;
+      case TokenType::FLOAT:
+	ret.second = std::stof(data);
+	break;
+      case TokenType::DOUBLE:
+	// Replace the 'd' with an 'e', and parse as double
+	ret.second = std::stod(data.replace(data.find('d'), 1, "e"));
+	break;
+      case TokenType::FRACTION:
+	// First check if the last character is a digit (cannot end with a /)
+	if(data[data.size() - 1] == '/')
+	  throw "Invalid fraction, must have a denominator";
+	{
+	  // Split into substrings, parse each as an int, and then get the GCD
+	  int divLoc = data.find('/');
+	  std::string_view lhs(&data[0], divLoc);
+	  std::string_view rhs(&data[divLoc + 1], data.size() - (divLoc + 1));
+
+	  // Now, convert both to int's and create a fraction
+	  int num = std::stoi(lhs.data());
+	  int den = std::stoi(rhs.data());
+	  Fraction f(num, den);
+	  if(f.isInt()) {
+	    ret.first = TokenType::INT;
+	    ret.second = f.getNum();
+	  }
+	  else
+	    ret.second = f;
+	}
+	break;
+      }
+
+      return ret;
+    }
+
+    bool _isDigit(char c) {
+      return c >= 48 && c <= 57;
     }
   };
 };				// lisp_reader
