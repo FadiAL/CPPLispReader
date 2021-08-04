@@ -353,9 +353,9 @@ namespace lisp_reader {
 	  break;
 	case TokenType::FLOAT:
 	  if(!_isDigit(c)) {
-	    // We already have an e, we only allow numeric stuff afterwards, so stop here
-	    if(std::find(data.begin(), data.end(), 'e') != data.end())
-	      cannotParse = true;
+	    auto eLoc = std::find(data.begin(), data.end(), 'e');
+	    if(eLoc != data.end())
+	      cannotParse = !(((eLoc == data.end() - 2) && (c == '-')) || (eLoc == data.end() - 1));
 	    else if(c == 'd')	// We have a double
 	      ret.first = TokenType::DOUBLE;
 	    // If it is not an 'e', this is not legal, so stop again

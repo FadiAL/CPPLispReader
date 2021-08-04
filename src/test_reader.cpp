@@ -162,6 +162,12 @@ TEST_CASE("Can read standalone symbols", "[reader]") {
     REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("123-456")});
     REQUIRE(!tokenizer.canRead());
   }
+  {
+    std::istringstream iss("43.4e-34.4");
+    Tokenizer tokenizer(iss);
+    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("43.4e-34.4")});
+    REQUIRE(!tokenizer.canRead());
+  }
 }
 
 TEST_CASE("Can read multiple consecutive symbols", "[reader]") {
@@ -209,6 +215,33 @@ TEST_CASE("Can read standalone integers", "[reader]") {
   }
 }
 
+TEST_CASE("Can read standalone floats") {
+  {
+    std::istringstream iss("32.321");
+    Tokenizer tokenizer(iss);
+    REQUIRE(tokenizer.read() == Token{TokenType::FLOAT, 32.321f});
+    REQUIRE(!tokenizer.canRead());
+  }
+  {
+    std::istringstream iss("-43.2");
+    Tokenizer tokenizer(iss);
+    REQUIRE(tokenizer.read() == Token{TokenType::FLOAT, -43.2f});
+    REQUIRE(!tokenizer.canRead());
+  }
+  {
+    std::istringstream iss("32e-3");
+    Tokenizer tokenizer(iss);
+    REQUIRE(tokenizer.read() == Token{TokenType::FLOAT, 32e-3f});
+    REQUIRE(!tokenizer.canRead());
+  }
+  {
+    std::istringstream iss("32.4e4");
+    Tokenizer tokenizer(iss);
+    REQUIRE(tokenizer.read() == Token{TokenType::FLOAT, 32.4e4f});
+    REQUIRE(!tokenizer.canRead());
+  }
+}
+
 TEST_CASE("Can read more complex input", "[reader]") {
   {
     std::istringstream iss("(\"Hello, World\")");
@@ -216,5 +249,6 @@ TEST_CASE("Can read more complex input", "[reader]") {
     REQUIRE(tokenizer.read() == Token{TokenType::OPEN_PARENTHESIS, std::optional<TokenValue>()});
     REQUIRE(tokenizer.read() == Token{TokenType::STRING, std::string("Hello, World")});
     REQUIRE(tokenizer.read() == Token{TokenType::CLOSE_PARENTHESIS, std::optional<TokenValue>()});
+    REQUIRE(!tokenizer.canRead());
   }
 }
