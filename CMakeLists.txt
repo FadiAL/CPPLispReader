@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.5)
 
-project(CPPLispReader VERSION 0.0.5 DESCRIPTION "A Lisp Reader written in modern C++" LANGUAGES CXX)
+project(CPPLispReader VERSION 0.1.0 DESCRIPTION "A Lisp Reader written in modern C++" LANGUAGES CXX)
 
 # Options
 option(ENABLE_TESTING "Enable compilation of files for testing the reader using the Catch2 submodule" OFF)
