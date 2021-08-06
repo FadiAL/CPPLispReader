@@ -168,6 +168,30 @@ TEST_CASE("Can read standalone symbols", "[reader]") {
     REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("43.4e-34.4")});
     REQUIRE(!tokenizer.canRead());
   }
+  {
+    std::istringstream iss("23.3e");
+    Tokenizer tokenizer(iss);
+    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("23.3e")});
+    REQUIRE(!tokenizer.canRead());
+  }
+  {
+    std::istringstream iss("23.3d");
+    Tokenizer tokenizer(iss);
+    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("23.3d")});
+    REQUIRE(!tokenizer.canRead());
+  }
+  {
+    std::istringstream iss("23232/");
+    Tokenizer tokenizer(iss);
+    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("23232/")});
+    REQUIRE(!tokenizer.canRead());
+  }
+  {
+    std::istringstream iss("32/-3");
+    Tokenizer tokenizer(iss);
+    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("32/-3")});
+    REQUIRE(!tokenizer.canRead());
+  }
 }
 
 TEST_CASE("Can read multiple consecutive symbols", "[reader]") {
@@ -215,7 +239,7 @@ TEST_CASE("Can read standalone integers", "[reader]") {
   }
 }
 
-TEST_CASE("Can read standalone floats") {
+TEST_CASE("Can read standalone floats", "[reader]") {
   {
     std::istringstream iss("32.321");
     Tokenizer tokenizer(iss);
@@ -238,6 +262,27 @@ TEST_CASE("Can read standalone floats") {
     std::istringstream iss("32.4e4");
     Tokenizer tokenizer(iss);
     REQUIRE(tokenizer.read() == Token{TokenType::FLOAT, 32.4e4f});
+    REQUIRE(!tokenizer.canRead());
+  }
+}
+
+TEST_CASE("Can read standalone doubles", "[reader]") {
+  {
+    std::istringstream iss("32d1");
+    Tokenizer tokenizer(iss);
+    REQUIRE(tokenizer.read() == Token{TokenType::DOUBLE, 32e1});
+    REQUIRE(!tokenizer.canRead());
+  }
+  {
+    std::istringstream iss("1.2d3");
+    Tokenizer tokenizer(iss);
+    REQUIRE(tokenizer.read() == Token{TokenType::DOUBLE, 1.2e3});
+    REQUIRE(!tokenizer.canRead());
+  }
+  {
+    std::istringstream iss("3.4d-4");
+    Tokenizer tokenizer(iss);
+    REQUIRE(tokenizer.read() == Token{TokenType::DOUBLE, 3.4e-4});
     REQUIRE(!tokenizer.canRead());
   }
 }
