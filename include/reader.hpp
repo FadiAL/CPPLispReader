@@ -2,6 +2,7 @@
 #define CPPLISPREADER_READER_HPP
 
 #include <iostream>
+#include <string_view>
 #include <algorithm>
 #include <string>
 #include <optional>
@@ -134,19 +135,54 @@ namespace lisp_reader {
     return os;
   }
 
+  // Represents an arbitrary reader that can be used to read characters from any input stream reference
+  class StreamReader {
+  public:
+    StreamReader(std::istream &is) : _is(is) {std::noskipws(_is);}
+
+    bool read(char &c) {_is.get() >> c; return static_cast<bool>(_is.get());}
+    bool peek(char &c) const {c = _is.get().peek(); return static_cast<bool>(_is.get());}
+    bool canRead() const {_is.get().peek(); return _is.get().good();}
+  private:
+    std::reference_wrapper<std::istream> _is;
+  };
+
+  // Specialization of the above to allow for reading from strings directly without constructing an intermediate stream object
+  class StringReader {
+  public:
+    template <typename T>
+    StringReader(const T &t) : _str(t), cntr(0) {}
+
+    bool read(char &c) {
+      bool suc = peek(c);
+
+      cntr += suc;
+
+      return suc;
+    }
+    bool peek(char &c) const {
+      if(cntr == _str.size()) return false;
+
+      c = _str[cntr];
+
+      return true;
+    }
+    bool canRead() const {return cntr < _str.size();}
+  private:
+    std::string_view _str;
+
+    std::size_t cntr;
+  };
+
   // Takes in a stream and produces tokens for consumption
+  template <typename T>
   class Tokenizer {
   public:
-    Tokenizer(std::istream &is)
-      : _is(is) {
-      // Disable whitespace-skipping
-      _is >> std::noskipws;
-    }
-
-    // Cannot copy/assign/move (&_is deletes those methods anyway, no need to explicitly delete here)
+    Tokenizer(T &&r)
+      : _r(std::move(r)) {}
 
     // Check if we can (or have) any more tokens to read by peeking a single character ahead and checking stream state
-    bool canRead() const {_is.peek(); return _is.good();}
+    bool canRead() const {return _r.canRead();}
 
     // Reads a token from the input stream
     // NOTE: Undefined behavior if read without checking canRead() first
@@ -155,20 +191,20 @@ namespace lisp_reader {
       _ret = Token{TokenType::SYMBOL, ""};
 
       char c;
-      c = _is.peek();
+      _r.peek(c);
       // Based on the first character we find, the rest of the characters must be parsed accordingly
       switch(c) {
       case token_chars::OPEN_PARENTHESIS: // Parse Open Parenthesis
 	_ret.first = TokenType::OPEN_PARENTHESIS;
 	_ret.second = std::nullopt;
 	// Consume the character
-	_is >> c;
+	_r.read(c);
 	break;
       case token_chars::CLOSE_PARENTHESIS: // Parse Close Parenthesis
 	_ret.first = TokenType::CLOSE_PARENTHESIS;
 	_ret.second = std::nullopt;
 	// Consume the character
-	_is >> c;
+	_r.read(c);
 	break;
       case token_chars::STRING:	// Parse String
 	_ret.first = TokenType::STRING;
@@ -190,53 +226,45 @@ namespace lisp_reader {
     }
     Token peek() const;
   private:
-    std::istream &_is;
+    T _r;
     // The current token being constructed, we fill this up while parsing
     Token _ret;
 
     // A list of private helper methods
     void _readStr() {
       char c;
-      _is >> c;
+      _r.read(c);
       if(c != token_chars::STRING)
 	throw "Missing double-quotes at start of string literal";
 
       // Consume characters until we hit a "
-      _is >> c;
       std::string &val = getTokenVal<TokenType::STRING>(*_ret.second);
-      while(c != token_chars::STRING && !_is.eof()) {
+      while(_r.read(c) && c != token_chars::STRING)
         val.push_back(c);
-	_is >> c;
-      }
       if(c != token_chars::STRING)
 	throw "Missing closing double-quotes for string literal";
     }
     void _readCmt() {
       // Read until we stop finding ';'
       char c;
-      _is >> c;
+      _r.read(c);
 
       // If the first character is not a comment character, throw an error
       if(c != token_chars::COMMENT)
 	throw "Missing semicolon at start of comment";
 
-      // Keep reading characters until we hit a non-COMMENT one
-      while(c == token_chars::COMMENT & !_is.eof())
-	_is >> c;
-      // Put back the first non-COMMENT character we found
-      _is.putback(c);
+      // Keep reading characters until we hit a non-COMMENT one or EOF
+      while(!_r.read(c) || c == token_chars::COMMENT);
 
       // Start reading the actual comment, can be done quickly with getline
-      std::string ret;
-      std::getline(_is, ret);
+      std::string &val = getTokenVal<TokenType::COMMENT>(*_ret.second);
+      val.push_back(c);
+      while(_r.read(c) && c != '\n') val.push_back(c);
 
       // Left-Trim to remove spaces after the double-semicolons
-      ret.erase(ret.begin(), std::find_if_not(ret.begin(), ret.end(), [](unsigned char c) {
+      val.erase(val.begin(), std::find_if_not(val.begin(), val.end(), [](unsigned char c) {
 									return std::isspace(c);
 								      }));
-      std::string &val = getTokenVal<TokenType::COMMENT>(*_ret.second);
-      // Append the string
-      val.insert(val.end(), ret.begin(), ret.end());
     }
 
     // Checks if a character is a valid start to a number (is +/- or a digit)
@@ -246,7 +274,8 @@ namespace lisp_reader {
 
     // Will attempt to determine whether a space-delimited word is a numeric type or symbol
     void _statefulRead() {
-      char c = _is.peek();
+      char c;
+      _r.peek(c);
 
       // A flag indicating if something is escaped or not
       Escapes escp = Escapes::NONE;
@@ -266,18 +295,18 @@ namespace lisp_reader {
 	_ret.first = TokenType::SYMBOL;
 
       // Begin the state machine to keep reading and refine the above
-      while(_is >> c  && (c != ' ')) {
+      while(_r.read(c)  && (c != ' ')) {
 	// Check if it is escaped
 	if(c == '\\') {
 	  // Read one extra character
-	  if(!(_is >> c)) throw "Cannot end symbol with unescaped backslash";
+	  if(!(_r.read(c))) throw "Cannot end symbol with unescaped backslash";
 
 	  val.push_back(c);
 	  continue;
 	}
 	else if(c == '|') {
 	  // Read until we hit another pipe
-	  while(_is >> c && c != '|')
+	  while(_r.read(c) && c != '|')
 	    val.push_back(c);
 
 	  if(c != '|') throw "Unclosed pipe character found";
@@ -298,26 +327,30 @@ namespace lisp_reader {
 	case TokenType::INT:
 	  switch(c) {
 	  case '/':
-	    if(!_isDigit(_is.peek()))
+	    _r.peek(c);
+	    if(!_isDigit(c))
 	      _ret.first = TokenType::SYMBOL;
 	    else
 	      _ret.first = TokenType::FRACTION;
 	    break;
 	  case '.':
 	    // Still an int, unless the next character is a digit
-	    if(_isDigit(_is.peek()))
+	    _r.peek(c);
+	    if(_isDigit(c))
 	      _ret.first = TokenType::FLOAT;
 	    break;
 	  case 'e':
 	    // If the next character is not a sign or a number, this is a symbol
-	    if(!_isValidNumStart(_is.peek()))
+	    _r.peek(c);
+	    if(!_isValidNumStart(c))
 	      _ret.first = TokenType::SYMBOL;
 	    else
 	      _ret.first = TokenType::FLOAT;
 	    break;
 	  case 'd':
 	    // If the next character is not a sign or a number, this is a symbol
-	    if(!_isValidNumStart(_is.peek()))
+	    _r.peek(c);
+	    if(!_isValidNumStart(c))
 	      _ret.first = TokenType::SYMBOL;
 	    else
 	      _ret.first = TokenType::DOUBLE;
@@ -337,7 +370,7 @@ namespace lisp_reader {
 	    if(std::find(val.begin(), val.end() - 1, 'e') != val.end() - 1)
 	      _ret.first = TokenType::SYMBOL;
 	    // If there is no further numeric character or (+/-), that is also wrong
-	    else if(!_isValidNumStart(_is.peek()))
+	    else if(_r.peek(c) && !_isValidNumStart(c))
 	      _ret.first = TokenType::SYMBOL;
 	    // Otherwise, we are still a float
 	  }
@@ -346,7 +379,7 @@ namespace lisp_reader {
 	    if(std::find(val.begin(), val.end() - 1, 'd') != val.end() - 1)
 	      _ret.first = TokenType::SYMBOL;
 	    // If there is no further numeric character or (+/-), that is also wrong
-	    else if(!_isValidNumStart(_is.peek()))
+	    else if(_r.peek(c) && !_isValidNumStart(c))
 	      _ret.first = TokenType::SYMBOL;
 	    // Otherwise, it is a double
 	    _ret.first = TokenType::DOUBLE;
@@ -366,7 +399,6 @@ namespace lisp_reader {
 	default:		// This is a symbol, we can just keep reading as usual here
 	  break;
 	}
-
       }
 
       // If the last character is a + or - or e or d, it is a symbol
@@ -422,6 +454,10 @@ namespace lisp_reader {
       return c >= 48 && c <= 57;
     }
   };
+
+  // Useful typedefs
+  typedef Tokenizer<StringReader> StringTokenizer;
+  typedef Tokenizer<StreamReader> StreamTokenizer;
 };				// lisp_reader
 
 #endif // CPPLISPREADER_READER_HPP
