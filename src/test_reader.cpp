@@ -3,297 +3,119 @@
 
 #include "reader.hpp"
 
+#include <vector>
 #include <sstream>
 
+using lisp_reader::StreamTokenizer;
+using lisp_reader::StringTokenizer;
 using lisp_reader::Tokenizer;
 using lisp_reader::Token;
 using lisp_reader::TokenType;
 using lisp_reader::TokenValue;
 
+// Helper methods
+template <typename T>
+void checkTokenizerOutput(Tokenizer<T> &tok, const std::vector<Token> &tokens) {
+  REQUIRE(tok.canRead());
+
+  for(const Token &token : tokens) REQUIRE(tok.read() == token);
+
+  REQUIRE(!tok.canRead());
+}
+void checkStringTokenizerOutput(std::string_view str, const std::vector<Token> &tokens) {
+  StringTokenizer tok(str);
+
+  checkTokenizerOutput(tok, tokens);
+}
+
+
 TEST_CASE("Knows when it can and cannot read anymore", "[reader]") {
   {
-    std::istringstream iss("");
-    Tokenizer tokenizer(iss);
+    StringTokenizer tokenizer("");
     REQUIRE(!tokenizer.canRead());
   }
   {
-    std::istringstream iss("Non-empty");
-    Tokenizer tokenizer(iss);
+    StringTokenizer tokenizer("Non-empty");
     REQUIRE(tokenizer.canRead());
   }
 }
 
 TEST_CASE("Can read standalone parenthesis", "[reader]") {
-  {
-    std::istringstream iss("(");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::OPEN_PARENTHESIS, std::optional<TokenValue>()});
-    REQUIRE(!tokenizer.canRead());
-  }
-
-  {
-    std::istringstream iss(")");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::CLOSE_PARENTHESIS, std::optional<TokenValue>()});
-    REQUIRE(!tokenizer.canRead());
-  }
+  checkStringTokenizerOutput("(", {Token{TokenType::OPEN_PARENTHESIS, std::optional<TokenValue>()}});
+  checkStringTokenizerOutput(")", {Token{TokenType::CLOSE_PARENTHESIS, std::optional<TokenValue>()}});
 }
 
 TEST_CASE("Can read several consecutive parenthesis", "[reader]") {
-  {
-    std::istringstream iss("()");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::OPEN_PARENTHESIS, std::optional<TokenValue>()});
-    REQUIRE(tokenizer.read() == Token{TokenType::CLOSE_PARENTHESIS, std::optional<TokenValue>()});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("())()");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::OPEN_PARENTHESIS, std::optional<TokenValue>()});
-    REQUIRE(tokenizer.read() == Token{TokenType::CLOSE_PARENTHESIS, std::optional<TokenValue>()});
-    REQUIRE(tokenizer.read() == Token{TokenType::CLOSE_PARENTHESIS, std::optional<TokenValue>()});
-    REQUIRE(tokenizer.read() == Token{TokenType::OPEN_PARENTHESIS, std::optional<TokenValue>()});
-    REQUIRE(tokenizer.read() == Token{TokenType::CLOSE_PARENTHESIS, std::optional<TokenValue>()});
-    REQUIRE(!tokenizer.canRead());
-  }
+  checkStringTokenizerOutput("()", {Token{TokenType::OPEN_PARENTHESIS, std::optional<TokenValue>()},
+				    Token{TokenType::CLOSE_PARENTHESIS, std::optional<TokenValue>()}});
+  checkStringTokenizerOutput("())()", {Token{TokenType::OPEN_PARENTHESIS, std::optional<TokenValue>()},
+				       Token{TokenType::CLOSE_PARENTHESIS, std::optional<TokenValue>()},
+				       Token{TokenType::CLOSE_PARENTHESIS, std::optional<TokenValue>()},
+				       Token{TokenType::OPEN_PARENTHESIS, std::optional<TokenValue>()},
+				       Token{TokenType::CLOSE_PARENTHESIS, std::optional<TokenValue>()}});
 }
 
 TEST_CASE("Can read standalone string literals", "[reader]") {
-  {
-    std::istringstream iss("\"Hello, World\"");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::STRING, std::string("Hello, World")});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("\"\"");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::STRING, std::string("")});
-    REQUIRE(!tokenizer.canRead());
-  }
+  checkStringTokenizerOutput("\"Hello, World\"", {Token{TokenType::STRING, std::string("Hello, World")}});
+  checkStringTokenizerOutput("\"\"", {Token{TokenType::STRING, std::string("\"\"")}});
 }
 
 TEST_CASE("Can read standalone comments", "[reader]") {
-  {
-    std::istringstream iss("; Test Comment");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::COMMENT, std::string("Test Comment")});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss(";Test Comment");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::COMMENT, std::string("Test Comment")});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss(";;; Test Comment ;;");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::COMMENT, std::string("Test Comment ;;")});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss(";;;Test Comment;;  ");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::COMMENT, std::string("Test Comment;;  ")});
-    REQUIRE(!tokenizer.canRead());
-  }
+  checkStringTokenizerOutput("; Test Comment", {Token{TokenType::COMMENT, std::string("Test Comment")}});
+  checkStringTokenizerOutput(";Test Comment", {Token{TokenType::COMMENT, std::string("Test Comment")}});
+  checkStringTokenizerOutput(";;; Test Comment ;;", {Token{TokenType::COMMENT, std::string("Test Comment ;;")}});
+  checkStringTokenizerOutput(";;;Test Comment;;  ", {Token{TokenType::COMMENT, std::string("Test Comment;;  ")}});
 }
 
 TEST_CASE("Can read standalone symbols", "[reader]") {
-  {
-    std::istringstream iss("Test");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("Test")});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("23abc");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("23abc")});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("ABC\\\"BCA");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("ABC\"BCA")});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("ABC\\ BCA");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("ABC BCA")});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("ds.ds");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("ds.ds")});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("|dsa dsa|");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("dsa dsa")});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("+");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("+")});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("-");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("-")});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("-+-+");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("-+-+")});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("123-456");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("123-456")});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("43.4e-34.4");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("43.4e-34.4")});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("23.3e");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("23.3e")});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("23.3d");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("23.3d")});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("23232/");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("23232/")});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("32/-3");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("32/-3")});
-    REQUIRE(!tokenizer.canRead());
-  }
+  checkStringTokenizerOutput("Test", {Token{TokenType::SYMBOL, std::string("Test")}});
+  checkStringTokenizerOutput("23abc", {Token{TokenType::SYMBOL, std::string("23abc")}});
+  checkStringTokenizerOutput("ABC\\\"BCA", {Token{TokenType::SYMBOL, std::string("ABC\"BCA")}});
+  checkStringTokenizerOutput("ABC\\ BCA", {Token{TokenType::SYMBOL, std::string("ABC BCA")}});
+  checkStringTokenizerOutput("ds.ds", {Token{TokenType::SYMBOL, std::string("ds.ds")}});
+  checkStringTokenizerOutput("|dsa dsa|", {Token{TokenType::SYMBOL, std::string("dsa dsa")}});
+  checkStringTokenizerOutput("+", {Token{TokenType::SYMBOL, std::string("+")}});
+  checkStringTokenizerOutput("-", {Token{TokenType::SYMBOL, std::string("-")}});
+  checkStringTokenizerOutput("-+-+", {Token{TokenType::SYMBOL, std::string("-+-+")}});
+  checkStringTokenizerOutput("123-456", {Token{TokenType::SYMBOL, std::string("123-456")}});
+  checkStringTokenizerOutput("43.4e-34.4", {Token{TokenType::SYMBOL, std::string("43.4e-34.4")}});
+  checkStringTokenizerOutput("23.3e", {Token{TokenType::SYMBOL, std::string("23.3e")}});
+  checkStringTokenizerOutput("23.3d", {Token{TokenType::SYMBOL, std::string("23.3d")}});
+  checkStringTokenizerOutput("23232/", {Token{TokenType::SYMBOL, std::string("23232/")}});
+  checkStringTokenizerOutput("32/-3", {Token{TokenType::SYMBOL, std::string("32/-3")}});
 }
 
 TEST_CASE("Can read multiple consecutive symbols", "[reader]") {
-  {
-    std::istringstream iss("Hello World");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("Hello")});
-    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("World")});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("Hello |Hello World| World");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("Hello")});
-    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("Hello World")});
-    REQUIRE(tokenizer.read() == Token{TokenType::SYMBOL, std::string("World")});
-    REQUIRE(!tokenizer.canRead());
-  }
+  checkStringTokenizerOutput("Hello World", {Token{TokenType::SYMBOL, std::string("Hello")},
+					     Token{TokenType::SYMBOL, std::string("World")}});
+  checkStringTokenizerOutput("Hello |Hello World| World", {Token{TokenType::SYMBOL, std::string("Hello")},
+							   Token{TokenType::SYMBOL, std::string("Hello World")},
+							   Token{TokenType::SYMBOL, std::string("World")}});
 }
 
 TEST_CASE("Can read standalone integers", "[reader]") {
-  {
-    std::istringstream iss("1234");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::INT, 1234});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("+1");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::INT, 1});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("-3");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::INT, -3});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("-032");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::INT, -32});
-    REQUIRE(!tokenizer.canRead());
-  }
+  checkStringTokenizerOutput("1234", {Token{TokenType::INT, 1234}});
+  checkStringTokenizerOutput("+1", {Token{TokenType::INT, 1}});
+  checkStringTokenizerOutput("-3", {Token{TokenType::INT, -3}});
+  checkStringTokenizerOutput("-032", {Token{TokenType::INT, -32}});
 }
 
 TEST_CASE("Can read standalone floats", "[reader]") {
-  {
-    std::istringstream iss("32.321");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::FLOAT, 32.321f});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("-43.2");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::FLOAT, -43.2f});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("32e-3");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::FLOAT, 32e-3f});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("32.4e4");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::FLOAT, 32.4e4f});
-    REQUIRE(!tokenizer.canRead());
-  }
+  checkStringTokenizerOutput("32.321", {Token{TokenType::FLOAT, 32.321f}});
+  checkStringTokenizerOutput("-43.2", {Token{TokenType::FLOAT, -43.2f}});
+  checkStringTokenizerOutput("32e-3", {Token{TokenType::FLOAT, 32e-3f}});
+  checkStringTokenizerOutput("32.4e4", {Token{TokenType::FLOAT, 32.4e4f}});
 }
 
 TEST_CASE("Can read standalone doubles", "[reader]") {
-  {
-    std::istringstream iss("32d1");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::DOUBLE, 32e1});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("1.2d3");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::DOUBLE, 1.2e3});
-    REQUIRE(!tokenizer.canRead());
-  }
-  {
-    std::istringstream iss("3.4d-4");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::DOUBLE, 3.4e-4});
-    REQUIRE(!tokenizer.canRead());
-  }
+  checkStringTokenizerOutput("32d1", {Token{TokenType::DOUBLE, 32e1}});
+  checkStringTokenizerOutput("1.2d3", {Token{TokenType::DOUBLE, 1.2e3}});
+  checkStringTokenizerOutput("3.4d-4", {Token{TokenType::DOUBLE, 3.4e-4}});
 }
 
 TEST_CASE("Can read more complex input", "[reader]") {
-  {
-    std::istringstream iss("(\"Hello, World\")");
-    Tokenizer tokenizer(iss);
-    REQUIRE(tokenizer.read() == Token{TokenType::OPEN_PARENTHESIS, std::optional<TokenValue>()});
-    REQUIRE(tokenizer.read() == Token{TokenType::STRING, std::string("Hello, World")});
-    REQUIRE(tokenizer.read() == Token{TokenType::CLOSE_PARENTHESIS, std::optional<TokenValue>()});
-    REQUIRE(!tokenizer.canRead());
-  }
+    checkStringTokenizerOutput("(\"Hello, World\")",
+			       {Token{TokenType::OPEN_PARENTHESIS, std::optional<TokenValue>()},
+				Token{TokenType::STRING, std::string("Hello, World")},
+				Token{TokenType::CLOSE_PARENTHESIS, std::optional<TokenValue>()}});
 }
